@@ -1,0 +1,68 @@
+# =============================================================================
+# GENERAL - Rules for the whole project
+# =============================================================================
+
+# OS-specific files
+.DS_Store
+*.pem
+
+# IDE-specific folders
+.vscode/
+.idea/
+
+# =============================================================================
+# FRONTEND - Rules for the Next.js app in the /frontend directory
+# =============================================================================
+
+# Dependencies
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.*
+frontend/.yarn/*
+!frontend/.yarn/patches
+!frontend/.yarn/plugins
+!frontend/.yarn/releases
+!frontend/.yarn/versions
+
+# Testing
+frontend/coverage/
+
+# Next.js build artifacts
+frontend/.next/
+frontend/out/
+
+# Production build
+frontend/build/
+
+# Debug logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.pnpm-debug.log*
+
+# Environment variables (NEVER commit secrets)
+frontend/.env*
+frontend/.env.local
+frontend/.env*.local
+
+# Vercel deployment folder
+frontend/.vercel/
+
+# TypeScript cache and generated types
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# =============================================================================
+# BACKEND - Rules for the FastAPI app in the /backend directory
+# =============================================================================
+
+# Python virtual environments
+backend/venv/
+backend/.venv/
+backend/env/
+
+# Python cache files
+backend/__pycache__/
+backend/**/*.pyc
+
+# Environment variables (NEVER commit secrets)
