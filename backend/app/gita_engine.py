@@ -1,5 +1,5 @@
-# Improved GitaEngine: Hybrid of Rev1 (HYDE/multi-query) and Rev2 (caching/incremental)
-# Filename: gita_engine_improved_hybrid.py
+# Improved GitaEngine Hybrid with IndexIDMap, BM25, and RRF fusion
+
 import os
 import pickle
 import faiss
@@ -14,6 +14,15 @@ import re
 import logging
 from collections import defaultdict
 from functools import lru_cache
+import json
+from datetime import datetime
+
+# Optional BM25
+try:
+    from rank_bm25 import BM25Okapi
+    BM25_AVAILABLE = True
+except Exception:
+    BM25_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("GitaEngineHybrid")
@@ -29,6 +38,7 @@ RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "3"))
 DEVICE = os.getenv("DEVICE", "cpu")
 TFIDF_TOP_K = int(os.getenv("TFIDF_TOP_K", "5"))
 BATCH_SIZE_EMBED = int(os.getenv("BATCH_SIZE_EMBED", "32"))
+TELEMETRY_PATH = os.getenv("TELEMETRY_PATH", "gita_telemetry.jsonl")
 
 # Gemini config
 if "GOOGLE_API_KEY" in os.environ:
@@ -48,7 +58,7 @@ def safe_split_lines(text: str) -> List[str]:
         s = raw.strip()
         if not s:
             continue
-        s = re.sub(r'^[\-\u2022\s\d\.\)]*', '', s).strip()
+        s = re.sub(r'^[\-\u2022\s\d\.\)\(]*', '', s).strip()
         if s and len(s) > 2:
             lines.append(s)
     return lines
@@ -58,6 +68,42 @@ def l2_normalize(a: np.ndarray, axis: int = 1, eps: float = 1e-8) -> np.ndarray:
     norm = np.linalg.norm(a, axis=axis, keepdims=True)
     norm = np.maximum(norm, eps)
     return a / norm
+
+
+# ---------- Helper algorithms: RRF and MMR (small implementations) ----------
+
+def reciprocal_rank_fusion(rank_lists: List[List[int]], k: int = 10, phi: float = 60.0) -> List[int]:
+    """Simple Reciprocal Rank Fusion implementation.
+    rank_lists: list of ranked doc id lists (best first).
+    returns top-k fused ids.
+    """
+    scores = defaultdict(float)
+    for rlist in rank_lists:
+        for rank, doc in enumerate(rlist, start=1):
+            scores[doc] += 1.0 / (phi + rank)
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [doc for doc, _ in ranked[:k]]
+
+
+def mmr_selection(candidate_embeddings: np.ndarray, query_embedding: np.ndarray, top_k: int = 5, lambda_coef: float = 0.7) -> List[int]:
+    """Return indices of candidate_embeddings selected by MMR."""
+    if candidate_embeddings.size == 0:
+        return []
+    sims_to_query = (candidate_embeddings @ query_embedding.T).flatten()
+    selected = []
+    candidates = list(range(candidate_embeddings.shape[0]))
+    while len(selected) < top_k and candidates:
+        mmr_scores = []
+        for c in candidates:
+            diversity = 0.0
+            if selected:
+                diversity = max((candidate_embeddings[c] @ candidate_embeddings[s].T) for s in selected)
+            mmr_scores.append(lambda_coef * sims_to_query[c] - (1 - lambda_coef) * diversity)
+        best_idx = int(np.argmax(mmr_scores))
+        best = candidates[best_idx]
+        selected.append(best)
+        candidates.remove(best)
+    return selected
 
 
 # ---------- GitaEngine class (hybrid) ----------
@@ -95,14 +141,12 @@ class GitaEngine:
         # Only attempt to instantiate if genai is configured
         try:
             if hasattr(genai, 'GenerativeModel'):
-                # keep them the same for now but allow environment override
                 fast_name = os.getenv('GEMINI_FAST', 'gemini-2.5-flash-lite')
                 quality_name = os.getenv('GEMINI_QUALITY', 'gemini-2.5-flash-lite')
                 self.fast_model = genai.GenerativeModel(fast_name)
                 self.quality_model = genai.GenerativeModel(quality_name)
-                # Health check
                 try:
-                    self.fast_model.generate_content("test")  # Minimal test
+                    self.fast_model.generate_content("test")
                     logger.info("Gemini models functional.")
                 except Exception as health_e:
                     logger.warning("Gemini models loaded but not functional: %s", health_e)
@@ -122,6 +166,10 @@ class GitaEngine:
         self.tfidf_matrix = None
         self.index: Optional[faiss.Index] = None
         self.chapter_verses: Dict[int, List[str]] = defaultdict(list)  # Pre-index for O(1) lookups
+
+        # BM25
+        self.bm25 = None
+        self.tokenized_docs: Optional[List[List[str]]] = None
 
         # try load corpus
         if os.path.exists(self.corpus_pickle):
@@ -152,6 +200,13 @@ class GitaEngine:
             try:
                 logger.info("Loading FAISS index from %s", self.index_path)
                 self.index = faiss.read_index(self.index_path)
+                # If loaded index isn't an IndexIDMap, wrap it so add_with_ids works consistently going forward.
+                if not isinstance(self.index, faiss.IndexIDMap):
+                    try:
+                        self.index = faiss.IndexIDMap(self.index)
+                        logger.info("Wrapped FAISS index into IndexIDMap for stable ids.")
+                    except Exception:
+                        logger.warning("Could not wrap loaded FAISS index into IndexIDMap; incremental adds may be affected.")
             except Exception as e:
                 logger.exception("Failed to read FAISS index: %s", e)
                 self.index = None
@@ -172,10 +227,9 @@ class GitaEngine:
         verse_text = vd.get('verse_text', '')
         translations = vd.get('translations', [])
         eng_trans = next((t['text'] for t in translations if t.get('language','').lower() == 'english'), '')
-        # Log if no English translation
         if not eng_trans:
             logger.debug(f"No English translation for {verse_id}")
-        hindi_trans = next((t['text'] for t in translations if t.get('language','').lower() == 'hindi'), '')  # Add Hindi for multilingual
+        hindi_trans = next((t['text'] for t in translations if t.get('language','').lower() == 'hindi'), '')
         comms = vd.get('commentaries', [])
         eng_comms = [c['text'] for c in comms if c.get('language','').lower() == 'english']
         comm_snip = " ".join([self._first_sentences(c, 2) for c in eng_comms[:3]])
@@ -194,8 +248,7 @@ class GitaEngine:
 
         self.doc_texts = [self._compose_document_text(vid, self.corpus[vid]) for vid in ordered_verse_ids]
 
-        # Prepare TF-IDF (note: stop_words='english' helps English queries but corpus may contain Sanskrit;
-        # we still keep it as a fallback retrieval method for English queries.)
+        # Prepare TF-IDF
         try:
             self.tfidf_vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
             self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(self.doc_texts)
@@ -204,6 +257,19 @@ class GitaEngine:
             logger.exception("TF-IDF vectorizer failed: %s", e)
             self.tfidf_vectorizer = None
             self.tfidf_matrix = None
+
+        # Prepare BM25 if available
+        if BM25_AVAILABLE:
+            try:
+                tokenized = [doc.split() for doc in self.doc_texts]
+                self.tokenized_docs = tokenized
+                self.bm25 = BM25Okapi(tokenized)
+                logger.info("BM25 prepared with %d documents.", len(self.doc_texts))
+            except Exception as e:
+                logger.exception("BM25 preparation failed: %s", e)
+                self.bm25 = None
+        else:
+            logger.info("rank_bm25 not installed; BM25 disabled.")
 
     def _build_faiss_index(self):
         if not self.doc_texts:
@@ -219,16 +285,18 @@ class GitaEngine:
                 parts.append(emb)
             except Exception as e:
                 logger.error(f"Embedding batch {i//BATCH_SIZE_EMBED} failed: {e}")
-                continue  # Skip bad batch
+                continue
         if not parts:
             logger.error("No embeddings generated—index build failed.")
             return
         self.doc_embeddings = np.vstack(parts).astype('float32')
         self.doc_embeddings = l2_normalize(self.doc_embeddings)
 
-        # Build FAISS index
-        self.index = faiss.IndexFlatIP(self.embedding_dim)
-        self.index.add(self.doc_embeddings)
+        # Build FAISS index and wrap in IDMap for stable ids
+        base_index = faiss.IndexFlatIP(self.embedding_dim)
+        self.index = faiss.IndexIDMap(base_index)
+        ids = np.arange(len(self.doc_texts)).astype('int64')
+        self.index.add_with_ids(self.doc_embeddings, ids)
 
         # Save with error handling
         try:
@@ -289,18 +357,51 @@ class GitaEngine:
         emb_all = l2_normalize(emb_all)
         return emb_all
 
-    def _retrieve_candidates(self, query_embeddings: np.ndarray, k: int = K_RETRIEVE) -> List[int]:
+    def _dense_search_rank(self, query_embeddings: np.ndarray, k: int = 20) -> List[int]:
+        """Return a ranked list of doc ids by aggregating scores across multiple query embeddings."""
         if self.index is None:
-            logger.warning("FAISS index missing; no candidates retrieved.")
+            logger.warning("FAISS index missing; dense search skipped.")
             return []
-        # FAISS search (if using IndexIDMap, we get back original ids)
+        # perform search for each query embedding
         distances, indices = self.index.search(query_embeddings, k)
-        cand_set = set()
-        for idx_list in indices:
-            for idx in idx_list:
-                if idx != -1:
-                    cand_set.add(int(idx))
-        return list(cand_set)
+        score_map = defaultdict(float)
+        for row_idx in range(indices.shape[0]):
+            for col_idx in range(indices.shape[1]):
+                idx = int(indices[row_idx, col_idx])
+                if idx == -1:
+                    continue
+                score = float(distances[row_idx, col_idx])
+                score_map[idx] += score  # accumulate
+        if not score_map:
+            return []
+        ranked = sorted(score_map.items(), key=lambda x: x[1], reverse=True)
+        return [doc for doc, _ in ranked]
+
+    def _bm25_rank(self, query: str, k: int = 20) -> List[int]:
+        if not BM25_AVAILABLE or self.bm25 is None:
+            return []
+        tokenized_q = query.split()
+        scores = self.bm25.get_scores(tokenized_q)
+        ranked = np.argsort(scores)[::-1]
+        return [int(i) for i in ranked[:k] if scores[i] > 0]
+
+    def _retrieve_candidates(self, query_embeddings: np.ndarray, query_text: str, k: int = K_RETRIEVE) -> List[int]:
+        # Dense ranked list (expand k for better fusion)
+        dense_ranked = self._dense_search_rank(query_embeddings, k=(k * 4))
+        # BM25 ranked list
+        bm25_ranked = self._bm25_rank(query_text, k=(k * 4)) if BM25_AVAILABLE else []
+        # If both exist, fuse lists; else prefer dense or bm25
+        lists_to_fuse = []
+        if dense_ranked:
+            lists_to_fuse.append(dense_ranked)
+        if bm25_ranked:
+            lists_to_fuse.append(bm25_ranked)
+        if lists_to_fuse:
+            fused = reciprocal_rank_fusion(lists_to_fuse, k=(k * 4))
+            return fused[:k]
+        # fallback to tfidf
+        tfidf_candidates = self._tfidf_search(query_text, top_k=k)
+        return tfidf_candidates
 
     # ---------- rerank ----------
     def _rerank_and_select(self, user_query: str, candidate_indices: List[int], top_n: int = RERANK_TOP_N) -> List[Dict[str, Any]]:
@@ -351,7 +452,6 @@ class GitaEngine:
                 except Exception as e:
                     logger.warning("TF-IDF scoring failed: %s", e)
             else:
-                # Last resort: word overlap
                 for i, (_q, ct) in enumerate(pairs):
                     scores[i] = len(set(ct.split()) & set(user_query.split()))
 
@@ -386,19 +486,22 @@ class GitaEngine:
             except Exception as e:
                 logger.debug("Gemini synthesis failed: %s", e)
 
-        # fallback
         fallback = "Based on the provided sources:\n\n"
         for s in selected_sources:
             fallback += f"- Chapter {s.get('chapter_id')}, Verse {s.get('verse_number')} ({s.get('author')}): {s.get('candidate_text')[:300]}...\n"
         return fallback
 
+    # ---------- telemetry ----------
+    def _log_telemetry(self, payload: Dict[str, Any]):
+        try:
+            payload['timestamp'] = datetime.utcnow().isoformat() + 'Z'
+            with open(TELEMETRY_PATH, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + '\n')
+        except Exception as e:
+            logger.debug("Failed to write telemetry: %s", e)
+
     # ---------- public API ----------
     def get_response(self, query: str) -> Dict[str, Any]:
-        """
-        Public method to get a response. Normalizes the query and calls the cached implementation.
-        """
-        # Normalize the query to improve cache hits.
-        # "what is yoga?" and " what is yoga? " should be treated the same.
         normalized_query = query.strip().lower()
         if len(normalized_query) < 2:
             return {"answer": "Please provide a longer question.", "sources": [], "debug": {"reason": "short query"}}
@@ -406,9 +509,6 @@ class GitaEngine:
     
     @lru_cache(maxsize=128)
     def _get_response_cached(self, query: str) -> Dict[str, Any]:
-        """
-        The core RAG logic. This method is cached.
-        """
         logger.info("User query (normalized): %s", query)
 
         alt_queries = self._generate_multiple_queries(query)
@@ -418,13 +518,21 @@ class GitaEngine:
         hyde_docs = [self._generate_hypothetical_answer(q) for q in all_queries]
         query_embeddings = self._embed_queries(hyde_docs)
 
-        candidate_indices = self._retrieve_candidates(query_embeddings, k=K_RETRIEVE)
+        candidate_indices = self._retrieve_candidates(query_embeddings, query, k=K_RETRIEVE * 2)
         fallback_used = False
         if not candidate_indices:
             candidate_indices = self._tfidf_search(query, top_k=TFIDF_TOP_K)
             fallback_used = True
 
         if not candidate_indices:
+            self._log_telemetry({
+                'query': query,
+                'normalized_query': query,
+                'candidates': [],
+                'selected': [],
+                'answer': None,
+                'fallback_used': True
+            })
             return {"answer": "I could not find relevant verses for your question.", "sources": [], "debug": {"candidates": []}}
 
         selected_sources_meta = self._rerank_and_select(query, candidate_indices, top_n=RERANK_TOP_N)
@@ -438,6 +546,14 @@ class GitaEngine:
                     "verse": vd.get('verse_details', {}).get('verse_number'),
                     "commentary_author": None
                 })
+            self._log_telemetry({
+                'query': query,
+                'normalized_query': query,
+                'candidates': candidate_indices,
+                'selected': [],
+                'answer': None,
+                'fallback_used': fallback_used
+            })
             return {"answer": "Found related verses but could not compute final ranking.", "sources": sources_min, "debug": {"fallback": fallback_used}}
 
         final_answer = self._synthesize_answer(query, selected_sources_meta)
@@ -453,74 +569,93 @@ class GitaEngine:
             "selected_indices": [s.get('index') for s in selected_sources_meta]
         }
 
+        # telemetry
+        try:
+            self._log_telemetry({
+                'query': query,
+                'normalized_query': query,
+                'candidates': candidate_indices,
+                'selected': [s.get('index') for s in selected_sources_meta],
+                'sources': final_sources_ui,
+                'answer': final_answer[:1000],
+                'debug': debug,
+                'fallback_used': fallback_used
+            })
+        except Exception:
+            logger.debug("Telemetry logging failed.")
+
         return {"answer": final_answer, "sources": final_sources_ui, "debug": debug}
 
     # ---------- utility: add documents incrementally ----------
     def add_documents(self, new_corpus: Dict[str, Dict[str, Any]], save: bool = True):
-        """
-        IMPROVED: Merge and incrementally index additional documents.
-        This is more scalable as it avoids rebuilding the entire index.
-        """
         if not new_corpus:
             logger.warning("add_documents called with no new documents.")
             return
 
-        start_idx = len(self.verse_id_map)
+        start_idx = max(self.verse_id_map.keys()) + 1 if self.verse_id_map else 0
         new_doc_texts = []
-        
-        for i, (vid, vdata) in enumerate(new_corpus.items()):
+        new_vids = []
+        idx_counter = start_idx
+        for vid, vdata in new_corpus.items():
             if vid in self.corpus:
                 logger.warning(f"Verse ID {vid} already exists in corpus. Skipping.")
                 continue
 
-            new_idx = start_idx + i
+            new_idx = idx_counter
+            idx_counter += 1
             self.corpus[vid] = vdata
             self.verse_id_map[new_idx] = vid
-            
+            new_vids.append((new_idx, vid))
+
             doc_text = self._compose_document_text(vid, vdata)
             self.doc_texts.append(doc_text)
             new_doc_texts.append(doc_text)
-            
-            # Update chapter index
+
             ch = vdata.get('verse_details', {}).get('chapter_number')
             if ch:
                 self.chapter_verses[ch].append(vid)
-        
+
         logger.info(f"Adding {len(new_doc_texts)} new documents to the index.")
 
-        # --- Efficiently update FAISS index ---
         if self.index is not None and new_doc_texts:
             logger.info("Generating embeddings for new documents...")
             new_embeddings = self.embed_model.encode(
-                new_doc_texts, 
-                convert_to_numpy=True, 
+                new_doc_texts,
+                convert_to_numpy=True,
                 show_progress_bar=False,
                 batch_size=BATCH_SIZE_EMBED
             ).astype('float32')
             new_embeddings = l2_normalize(new_embeddings)
 
+            # compute new ids
+            new_ids = np.arange(start_idx, start_idx + new_embeddings.shape[0]).astype('int64')
             logger.info(f"Adding {new_embeddings.shape[0]} new vectors to FAISS index.")
-            self.index.add(new_embeddings) # Efficiently add to existing index
+            try:
+                self.index.add_with_ids(new_embeddings, new_ids)
+            except Exception as e:
+                logger.exception("Failed to add_with_ids to FAISS index: %s", e)
+                # fallback: rebuild index
+                self._build_faiss_index()
         else:
             logger.warning("FAISS index not available or no new documents; full rebuild might be needed.")
-            # Fallback to full rebuild if index doesn't exist
             self._build_faiss_index()
 
-        # Recomputing TF-IDF is still relatively cheap if done infrequently.
-        # For very large, frequent updates, a more advanced incremental TF-IDF approach would be needed.
+        # update BM25 and TF-IDF
         try:
             self.tfidf_vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
             self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(self.doc_texts)
+            if BM25_AVAILABLE:
+                tokenized = [doc.split() for doc in self.doc_texts]
+                self.tokenized_docs = tokenized
+                self.bm25 = BM25Okapi(tokenized)
         except Exception:
-            logger.exception("Could not update TF-IDF vectorizer")
+            logger.exception("Could not update TF-IDF/BM25 vectorizer")
 
         if save:
             try:
-                # Save the updated index
                 faiss.write_index(self.index, self.index_path)
                 logger.info("Saved updated FAISS index to %s", self.index_path)
 
-                # Save the updated corpus data
                 with open(self.corpus_pickle, 'wb') as f:
                     pickle.dump({'corpus': self.corpus, 'verse_id_map': self.verse_id_map, 'chapters': self.chapters}, f)
                     logger.info("Saved updated corpus to %s", self.corpus_pickle)
@@ -528,7 +663,6 @@ class GitaEngine:
                 logger.exception("Could not save updated index or corpus pickle")
 
 
-# ---------- quick demo guard ----------
 if __name__ == '__main__':
     ge = GitaEngine()
     print('Ready. Load corpus pickle and call get_response(query)')

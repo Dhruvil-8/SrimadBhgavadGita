@@ -1,6 +1,6 @@
-# Bhagavad Gita AI
+# Srimad Bhagavad Gita AI
 
-Bhagavad Gita AI is a full-stack application designed to provide answers from the sacred text of the Bhagavad Gita using a Retrieval-Augmented Generation (RAG) system.
+Srimad Bhagavad Gita AI is a full-stack application designed to provide answers from the sacred text of the Srimad Bhagavad Gita using a Retrieval-Augmented Generation (RAG) system.
 
 Users can ask questions in natural language, and the system retrieves the most relevant verses and scholarly commentaries using semantic search. 
 
@@ -8,7 +8,7 @@ Users can ask questions in natural language, and the system retrieves the most r
 
 ## Core Idea
 
-The vision of this project goes beyond the Bhagavad Gita.  
+The vision of this project goes beyond the Srimad Bhagavad Gita.  
 The core idea is that anyone should be able to explore the wisdom of Sanatan Dharma by simply asking a question — with answers drawn from its sacred foundations: the Vedas, Puranas, Samhitas, and related scriptures. 
 
 ---
@@ -26,7 +26,7 @@ The core idea is that anyone should be able to explore the wisdom of Sanatan Dha
 
 This project represents a unique collaboration between human direction and artificial intelligence. The entire codebase, both the Python backend and the Next.js frontend, was written by advanced LLMs. My role was that of an architect, providing the vision, and iterative feedback to guide the models.
 
-- Google Gemini: (~75%)  - ChatGPT:(~15%)  - Grok:(~10%)  
+- Google Gemini- ChatGPT - Grok  
 
 ---
 

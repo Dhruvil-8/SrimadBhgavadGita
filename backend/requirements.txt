@@ -1,4 +1,4 @@
-faiss_cpu==1.12.0
+faiss-cpu==1.12.0
 fastapi==0.116.1
 numpy==2.2.4
 pydantic==2.11.8
@@ -8,3 +8,7 @@ sentence_transformers==5.1.0
 slowapi==0.1.9
 uvicorn[standard]==0.35.0
 google-generativeai==0.8.5
+torch>=2.8.0
+transformers>=4.56.1
+tokenizers>=0.22.0
+rank_bm25>=0.2.2
