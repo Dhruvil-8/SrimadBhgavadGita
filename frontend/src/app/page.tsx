@@ -123,10 +123,15 @@ export default function HomePage() {
         setSourceVerseData(versesData);
         setIsSourceLoading(false);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (err instanceof Error) {
       setError(err.message);
-      setIsAiLoading(false);
-      setIsSourceLoading(false);
+    } else {
+      setError('An unexpected error occurred. Please try again.');
+    }
+
+    setIsAiLoading(false);
+    setIsSourceLoading(false);
     }
   };
 
@@ -270,7 +275,7 @@ export default function HomePage() {
             {verse.translations.filter(t => t.language?.toLowerCase() === selectedLanguage).map((t, i) => (
               <div key={i} className="p-3 bg-orange-50/50 border border-orange-100 rounded-md mt-2">
                 <p className="font-medium text-sm text-orange-900">{t.author}:</p>
-                <p className="italic">"{t.text}"</p>
+                <p className="italic">&quot;{t.text}&quot;</p>
               </div>
             ))}
           </div>
@@ -279,7 +284,7 @@ export default function HomePage() {
             {verse.commentaries.filter(c => c.language?.toLowerCase() === selectedLanguage).map((c, i) => (
               <div key={i} className="p-3 bg-gray-50 border border-gray-200 rounded-md mt-2">
                 <p className="font-medium text-sm text-gray-800">{c.author}:</p>
-                <p className="text-gray-700">{c.text}</p>
+                <p className="text-gray-700">&quot;{c.text}&quot;</p>
               </div>
             ))}
           </div>
@@ -381,7 +386,7 @@ export default function HomePage() {
                         {verseData.translations.filter((t) => t.language?.toLowerCase() === selectedLanguage).map((t, i) => (
                           <div key={i} className="p-3 bg-orange-50/50 border border-orange-100 rounded-md">
                             <p className="font-medium text-sm text-orange-900">{t.author}:</p>
-                            <p className="italic">"{t.text.trim()}"</p>
+                            <p className="italic">&quot;{t.text.trim()}&quot;</p>
                           </div>
                         ))}
                       </div>
@@ -390,7 +395,7 @@ export default function HomePage() {
                         {verseData.commentaries.filter((c) => c.language?.toLowerCase() === selectedLanguage).map((c, i) => (
                           <div key={i} className="p-3 bg-gray-50 border border-gray-200 rounded-md">
                             <p className="font-medium text-sm text-gray-800">{c.author}:</p>
-                            <p className="text-gray-700">{c.text.trim()}</p>
+                            <p className="text-gray-700">&quot;{c.text.trim()}&quot;</p>
                           </div>
                         ))}
                       </div>
