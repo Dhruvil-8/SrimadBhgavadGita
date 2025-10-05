@@ -35,7 +35,7 @@ This project represents a unique collaboration between human direction and artif
 - **Frontend:** Next.js, React, Tailwind CSS  
 - **Backend:** FastAPI (Python)  
 - **AI/ML:** Sentence-Transformers & FAISS for semantic search  
-- **Data:** The core textual data is sourced from the open-source [Gita GitHub Project](https://github.com/gita/gita), which credits the [Gita Supersite by IIT Kanpur](https://www.gitasupersite.iitk.ac.in/) as the original source.
+- **Data:** The data is sourced from the open-source [Gita GitHub Project](https://github.com/gita/gita), which credits the [Gita Supersite by IIT Kanpur](https://www.gitasupersite.iitk.ac.in/) as the original source.
 
 ---
 
