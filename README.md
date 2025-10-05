@@ -9,7 +9,7 @@ Users can ask questions in natural language, and the system retrieves the most r
 ## Core Idea
 
 The vision of this project goes beyond the Srimad Bhagavad Gita.  
-The core idea is that anyone should be able to explore the wisdom of Sanatan Dharma by simply asking a question — with answers drawn from its sacred foundations: the Vedas, Puranas, Samhitas, and related scriptures. 
+The core idea is that anyone should be able to explore the wisdom of Sanatan Dharma by simply asking a question — with answers drawn from its sacred foundations: the Vedas, Puranas and related scriptures. 
 
 ---
 
@@ -35,7 +35,7 @@ This project represents a unique collaboration between human direction and artif
 - **Frontend:** Next.js, React, Tailwind CSS  
 - **Backend:** FastAPI (Python)  
 - **AI/ML:** Sentence-Transformers & FAISS for semantic search  
-- **Data:** Verses & commentaries are sourced from the open-source [Gita GitHub Project](https://github.com/gita/gita/tree/main/data).  
+- **Data:** The core textual data is sourced from the open-source [Gita GitHub Project](https://github.com/gita/gita), which credits the [Gita Supersite by IIT Kanpur](https://www.gitasupersite.iitk.ac.in/) as the original source.
 
 ---
 
@@ -44,6 +44,6 @@ This project represents a unique collaboration between human direction and artif
 ⚠️ *Note:* The current version may sometimes retrieve irrelevant verses.The system and dataset still require further fine-tuning and enrichment to improve contextual relevance and accuracy.  
 
 Future improvements include:  
-- Expanding the dataset to cover Vedas, Puranas, Samhitas, Ayurveda, and other Sanatan Dharma texts.  
+- Expanding the dataset to cover Vedas, Puranas and other Sanatan Dharma texts.  
 - More refined embeddings and semantic search for better verse matching.  
 - Enhanced multilingual support
