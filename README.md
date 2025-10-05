@@ -1,6 +1,6 @@
-# Srimad Bhagavad Gita AI
+# Srimad Bhagavad Gita
 
-Srimad Bhagavad Gita AI is a full-stack application designed to provide answers from the sacred text of the Srimad Bhagavad Gita using a Retrieval-Augmented Generation (RAG) system.
+Srimad Bhagavad Gita is a full-stack application designed to provide answers from the sacred text of the Srimad Bhagavad Gita using a Retrieval-Augmented Generation (RAG) system.
 
 Users can ask questions in natural language, and the system retrieves the most relevant verses and scholarly commentaries using semantic search. 
 
@@ -46,4 +46,4 @@ This project represents a unique collaboration between human direction and artif
 Future improvements include:  
 - Expanding the dataset to cover Vedas, Puranas, Samhitas, Ayurveda, and other Sanatan Dharma texts.  
 - More refined embeddings and semantic search for better verse matching.  
-- Enhanced multilingual support and commentary alignment.  
+- Enhanced multilingual support

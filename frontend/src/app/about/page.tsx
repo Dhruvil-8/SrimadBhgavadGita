@@ -19,7 +19,7 @@ export default function AboutPage() {
         <section className="bg-white p-8 rounded-lg shadow-md border border-gray-200 text-lg leading-relaxed space-y-4">
 
           <p>
-            This project is an AI-powered tool designed to help you explore and reflect on the teachings of the Srimad Bhagavad Gita.
+            This project is designed to help you explore and reflect on the teachings of the Srimad Bhagavad Gita.
           </p>
 
           <p>
@@ -30,7 +30,6 @@ export default function AboutPage() {
           <p>
             To learn more about how this project works or to view the source code, visit the{' '}
             <a
-              // IMPORTANT: Replace this with the actual URL to your GitHub repository
               href="https://github.com/Dhruvil-8/SrimadBhgavadGita"
               target="_blank"
               rel="noopener noreferrer"
@@ -39,6 +38,39 @@ export default function AboutPage() {
               GitHub repository
             </a>.
           </p>
+
+          {/* --- NEW SECTION: Other Useful Links --- */}
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <h2 className="text-2xl font-semibold text-orange-700 mb-4">
+              Other Useful Links
+            </h2>
+            <p className="mb-4">
+             
+            </p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>
+                <a
+                  href="https://www.gitasupersite.iitk.ac.in/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-orange-600 hover:underline"
+                >
+                  Gita Supersite by IIT Kanpur
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://vedicheritage.gov.in/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-orange-600 hover:underline"
+                >
+                  Vedic Heritage Portal (Govt. of India)
+                </a>
+              </li>
+            </ul>
+          </div>
+          {/* --- END OF NEW SECTION --- */}
           
         </section>
       </div>
